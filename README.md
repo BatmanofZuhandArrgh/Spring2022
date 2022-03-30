@@ -1,2 +1,2 @@
 # Spring2022
-All class
+All classes

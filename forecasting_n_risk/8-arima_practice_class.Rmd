@@ -1,0 +1,314 @@
+---
+title: "8-arima_practice"
+author: "Dan Shah"
+date: "3/2/2022"
+output: html_document
+---
+
+## Load fpp3 library
+
+```{r setup, include=FALSE}
+library(fpp3)
+```
+
+## Seasonal ARIMA modeling
+
+Load in a new dataset and visualize
+```{r seasonal}
+
+leisure <- us_employment %>% 
+  filter(Title == 'Leisure and Hospitality',
+         year(Month) > 2000) %>% 
+  mutate(Employed = Employed/1000) %>% 
+  select(Month, Employed)
+
+autoplot(leisure, Employed) + labs(title = 'Employment (US): leisure')
+
+```
+
+Clearly the data are not stationary, there is an upward trend in the data and
+also seasonality. The variance seems stable over time.
+
+Remember STL decomposition?
+
+```{r stl}
+leisure %>% 
+  model(
+    STL(Employed ~ trend() + season(window = "periodic"))
+  ) %>% 
+  components() %>% 
+  autoplot()
+
+```
+For ARIMA models, stationary data is a requirement.
+
+First step to try and make data stationary is to take seasonal difference
+if seasonality exists.
+
+You will obtain same answer if you take a first difference and seasonal
+difference in either order but you may not need a first difference if a
+seasonal difference makes the data stationary. The reverse won't be true.
+
+Why? Options:
+Take a first difference (difference whole dataset) and then take seasonal difference (differencing every M)
+  What happens? After first difference, data will still not be stationary because of seasonality
+
+Taking seasonal difference and then first difference
+  What happens? If data is seasonal then the seasonal difference may make data stationary.
+
+
+Try to seasonally difference data and visualize
+```{r }
+leisure %>% 
+  gg_tsdisplay(difference(Employed, 12),
+               plot_type = 'partial', lag = 36)
+```
+
+Test seasonally differenced data. Unitroot test shows that we need
+1 difference to make stationary
+```{r}
+leisure %>% features(difference(Employed, 12), unitroot_ndiffs)
+#leisure %>% features(difference(Employed, 12), unitroot_kpss)
+```
+Take non-seasonal difference after a seasonal difference
+
+```{r}
+leisure %>% 
+  gg_tsdisplay(difference(Employed, 12) %>% difference(),
+               plot_type = 'partial', lag = 36)
+```
+ARIMA modeling
+
+```{r}
+fit <- leisure %>% 
+  model(
+    arima012011 = ARIMA(Employed ~ pdq(0,1,2) + PDQ(0,1,1)),
+    arima210011 = ARIMA(Employed ~ pdq(2,1,0) + PDQ(0,1,1)),
+    arima210110 = ARIMA(Employed ~ pdq(2,1,0) + PDQ(1,1,0)),
+    auto = ARIMA(Employed, stepwise = FALSE, approximation = FALSE)
+  )
+```
+
+Auto ARIMA function found the best model (lowest AICc). Model is pdq(2,1,0) + PDQ(1,1,1)
+
+```{r}
+fit %>% 
+  pivot_longer(everything(), names_to = "Model Name",
+               values_to = "Orders")
+
+glance(fit) %>% arrange(AICc)
+```
+We can use the report function on the best model to find more information:
+the coefficients and # of parameters and parameters estimated
+
+```{r}
+fit %>% select(auto) %>% report()
+
+#ARIMA(2,1,0)(1,1,1)[12] 
+```
+
+Within residuals plot you're looking for limited or no autocorrelation,
+stationary residuals and a normal distribution of residuals
+
+```{r residuals}
+fit %>% select(auto) %>% gg_tsresiduals(lag = 36)
+```
+Perform test to see if residuals are autocorrelated. If they are then
+that means that model is not capturing all information.
+
+Degrees of freedom (dof) is equal to estimated parameters in the model
+(coefficients, p + q + P + Q)
+
+Residuals are not autocorrelated (pvalue > 0.05)
+
+```{r}
+augment(fit) %>% 
+  filter(.model == "auto") %>% 
+  features(.innov, ljung_box, lag = 24, dof = 4)
+```
+
+Let's forecast Leisure employment for 3 years into the future!
+
+```{r}
+forecast(fit, h=36) %>% 
+  filter(.model == 'auto') %>% 
+  autoplot(leisure) +
+  labs(title = "Employment (US): Leisure w/ Forecast")
+```
+
+## More practice: Electricity
+
+Develop an ETS and ARIMA model for the Electricity dataset and compare
+performance.
+
+First step: Plot the data and check it out. We see a trend, seasonality
+and some difference in trend maybe about 1990?
+
+```{r aus_autoplot}
+aus_production %>% autoplot(Electricity)
+```
+
+Filter for 1990 onward to try and "model" more recent data
+
+```{r filter_elec}
+elec_1990 <- aus_production %>% 
+  select(Electricity) %>% 
+  filter(year(Quarter) > 1990)
+
+elec_1990 %>% autoplot()
+```
+Plotting seasonality
+
+```{r}
+elec_1990 %>% gg_season()
+```
+Decomposition of dataset to view trend/seasonality
+
+```{r decomp_elec}
+elec_1990 %>% 
+  model(STL(Electricity ~ trend() + season(window = "periodic"))) %>% 
+  components() %>% autoplot()
+```
+
+From above plot:
+Seasonality is pretty consistent, remainder does not show increasing
+variation over time so no transformation needed
+
+Fit ETS (exponential smoothing model)
+
+```{r}
+ets <- elec_1990 %>% 
+  model(
+    additive = ETS(Electricity ~ error("A") + trend("A") + season("A")),
+    multiplicative = ETS(Electricity ~ error("M") + trend("A") + season("M")),
+    auto_ets = ETS(Electricity)
+  )
+
+glance(ets)
+```
+auto ETS function selected the model with the lowest AICc. Let's examine.
+
+Beta coefficient is small which implies that trend is not changing over time.
+
+Gamma coefficient is a little bit higher, meaning that seasonality does change some.
+
+```{r}
+ets %>% select(auto_ets) %>% report()
+```
+
+forecast with these models
+
+```{r}
+fc_ets <- ets %>% forecast(h = 12)
+fc_ets %>% autoplot(elec_1990)
+```
+Examine residuals of ETS show that residuals look consistent over time,
+no autocorrelation and there appears to be a normal distribution.
+
+```{r}
+ets %>% select(auto_ets) %>% gg_tsresiduals(lag = 12)
+```
+ARIMA modeling
+
+```{r}
+elec_1990 %>% autoplot()
+```
+Data is not stationary (constant mean and variance) - there is a trend and seasonality.
+
+Let's take a seasonal difference to see if we can make data stationary
+
+```{r}
+elec_1990 %>% 
+  gg_tsdisplay(difference(Electricity, 4),
+               plot_type = 'partial', lag = 12) +
+  labs(title = "seasonally differenced")
+```
+Test to see if data is stationary. KPSS returns 0.1, meaning stationary.
+
+```{r}
+elec_1990 %>% 
+  features(difference(Electricity, 4), unitroot_kpss)
+```
+
+On this dataset we only took a seasonal difference, meaning D = 1 and d = 0
+From ACF plot, there are close to 2 significant lags, so let's try a MA(2)
+From PACF plot, there is a significant seasonal lag, so SAR(1)
+
+ARIMA modeling:
+p - nonseasonal AR
+d - nonseasonal differencing
+q - nonseasonal MA
+P - seasonal AR
+D - seasonal differencing
+Q - seasonal MA
+
+```{r}
+arima_fit <- elec_1990 %>% 
+  model(auto = ARIMA(Electricity, stepwise = FALSE, approximation = FALSE),
+        arima1 = ARIMA(Electricity ~ pdq(0,0,2) + PDQ(1,1,0)),
+        arima2 = ARIMA(Electricity ~ pdq(1,0,0) + PDQ(1,1,0)),
+        arima3 = ARIMA(Electricity ~ pdq(0,0,1) + PDQ(0,1,1)))
+
+glance(arima_fit)
+```
+
+
+```{r}
+arima_fit %>% select(auto) %>% report()
+```
+
+Examine residuals for auto_arima model:
+
+Residuals look good - no autocorrelation, variance does seem to increase over time
+so long-term forecasts may be suspect. Residuals follow normal distribution.
+
+```{r}
+auto_arima_fit <- arima_fit %>% select(auto)
+
+auto_arima_fit %>% gg_tsresiduals(lag = 12)
+
+#if you did want to test residuals
+augment(auto_arima_fit) %>% 
+  features(.innov, ljung_box, lag = 12, dof = 6)
+
+```
+Remember, we can't compare AICc between model families so we need to
+create a test dataset to evaluate accuracy or cross-validation
+
+```{r}
+train <- elec_1990 %>% filter(year(Quarter) < 2006)
+test <- elec_1990 %>% filter(year(Quarter) >= 2006)
+```
+
+
+Auto ARIMA selects same model as what we specified. ETS model performs
+slightly better, but still close performance between two models.
+
+```{r}
+compare_fit <- train %>% 
+  model(
+    ets_auto = ETS(Electricity),
+    arima_spec = ARIMA(Electricity ~ pdq(0,0,1) + PDQ(0,1,1)),
+    arima_original_auto = ARIMA(Electricity ~ pdq(4,0,0) + PDQ(0,1,2))
+  )
+
+fc <- compare_fit %>% forecast(h = 18)
+
+fc %>% accuracy(elec_1990)
+```
+Plot our forecasts against the test dataset and take a look:
+
+```{r}
+fc %>% autoplot(elec_1990, level = NULL)
+```
+
+## Appendix
+Why is auto and specified now the same for ARIMA?
+
+```{r}
+compare_fit %>% select(arima_auto) %>% report()
+```
+
+
+
+

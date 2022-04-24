@@ -1,0 +1,190 @@
+---
+title: "12_Prophet"
+author: "Dan Shah"
+date: "4/13/2022"
+output: html_document
+---
+
+## Project Tips
+
+Importing a csv (or text file) from the web by pasting the url as a string to read.csv()
+
+```{r csv}
+url <- "https://raw.githubusercontent.com/fivethirtyeight/data/master/births/US_births_2000-2014_SSA.csv"
+df_csv_file <- read.csv(url, header = TRUE) #if .tsv file read.delim(url, sep = "/t", header = TRUE)
+print(df_csv_file)
+```
+
+## FRED
+
+For FRED data you can copy and paste the link to the csv data as a url and follow the same process
+
+```{r fred}
+url <- "https://fred.stlouisfed.org/graph/fredgraph.csv?bgcolor=%23e1e9f0&chart_type=line&drp=0&fo=open%20sans&graph_bgcolor=%23ffffff&height=450&mode=fred&recession_bars=on&txtcolor=%23444444&ts=12&tts=12&width=1168&nt=0&thu=0&trc=0&show_legend=yes&show_axis_titles=yes&show_tooltip=yes&id=DFF&scale=left&cosd=2017-04-12&coed=2022-04-12&line_color=%234572a7&link_values=false&line_style=solid&mark_type=none&mw=3&lw=2&ost=-99999&oet=99999&mma=0&fml=a&fq=Daily%2C%207-Day&fam=avg&fgst=lin&fgsnd=2020-02-01&line_index=1&transformation=lin&vintage_date=2022-04-13&revision_date=2022-04-13&nd=1954-07-01"
+
+fred_csv_file <- read.csv(url, header = TRUE)
+print(fred_csv_file)
+```
+You can also use the fredr package for FRED data which allows you to interact
+with the application (API) for FRED:
+
+```{r}
+#install.packages('fredr')
+library(fredr)
+fredr_set_key('YOU NEED TO CREATE AN ACCOUNT AND GET AN API KEY')
+
+library(dplyr)
+library(ggplot2)
+
+popular_funds_series <- fredr_series_search_text(
+    search_text = "federal funds",
+    order_by = "popularity",
+    sort_order = "desc",
+    limit = 1
+)
+
+popular_funds_series_id <- popular_funds_series$id
+
+popular_funds_series_id %>%
+  fredr(
+    observation_start = as.Date("1990-01-01"),
+    observation_end = as.Date("2000-01-01")
+  ) %>%
+  ggplot(data = ., mapping = aes(x = date, y = value, color = series_id)) +
+    geom_line() +
+    labs(x = "Observation Date", y = "Rate", color = "Series")
+
+```
+
+## Stock data
+
+Why I'm advising against forecasting only stock data:
+https://towardsdatascience.com/quit-trying-to-predict-the-market-27d77149a709
+
+It's more or less random noise once made stationary:
+
+```{r}
+library(fpp3)
+google_2015 <- gafa_stock %>%
+  filter(Symbol == "GOOG", year(Date) == 2015) 
+google_2015 %>% ACF(Close) %>% 
+  autoplot() + labs(subtitle = "Google closing stock price")
+google_2015 %>% ACF(difference(Close)) %>% 
+  autoplot() + labs(subtitle = "Changes in Google closing stock price")
+```
+
+## Number of Time Series
+
+The # of time series within a dataset was answered incorrectly for most submissions.
+I just want to clarify that many of these datasets have many time series. The below has 304 time series data:
+
+```{r}
+tourism
+```
+But feasts and fable packages handle these time series without the need for writing loops.
+
+Here's how you can explore these time series data quickly: 
+trend/seasonality for all time series (all 304) within this dataset
+
+```{r}
+system.time(
+  tourism_features <- tourism %>% 
+    features(Trips, feature_set(pkgs = "feasts")))
+
+tourism_features
+  
+
+```
+
+The packages can handle modeling many time series at once:
+
+```{r}
+system.time(
+  fit <- tourism %>% 
+    model(ETS(Trips))
+  
+)
+```
+
+
+## Prophet
+
+The package that integrates with fable can be installed and loaded:
+
+```{r}
+#install.packages("fable.prophet")
+library(fable.prophet)
+```
+
+Let's import and clean wikipedia visit data for Peyton Manning
+
+```{r}
+url <- 'https://raw.githubusercontent.com/facebook/prophet/main/examples/example_wp_log_peyton_manning.csv'
+pm <- read.csv(url, header = TRUE)
+pm$Date <- ymd(pm$ds)
+pm <- tsibble(pm, index = Date)
+pm$Visits <- pm$y
+
+#missing dates
+pm <- pm %>% fill_gaps() %>% tidyr::fill(Visits, .direction = "down")
+
+
+```
+
+Let's visualize the data:
+```{r}
+pm %>% autoplot()
+```
+We can compare accuracy to ETS and ARIMA:
+
+```{r}
+#split into train/test
+train <- pm %>% filter(year(Date) < 2015)
+test <- pm %>% filter(year(Date) >= 2015)
+```
+
+
+```{r}
+fit <- train %>% 
+  model(prophet(Visits),
+        ARIMA(Visits),
+        ETS(Visits))
+```
+
+
+
+```{r}
+fc <- fit %>% forecast(h = 385)
+fc %>% accuracy(test)
+```
+
+Decompose prophet model
+```{r}
+fit_prophet <- train %>% 
+  model(prophet(Visits))
+
+fit_prophet %>% components() %>% autoplot()
+```
+We can also use the base Prophet package, but it doesn't play well with Fable:
+
+```{r}
+#install.packages('prophet')
+library(prophet)
+
+```
+
+Let's reload the data and plot the forecast vs the actuals:
+```{r}
+url <- 'https://raw.githubusercontent.com/facebook/prophet/main/examples/example_wp_log_peyton_manning.csv'
+pm <- read.csv(url, header = TRUE)
+fit_prophet <- prophet(pm)
+future <- make_future_dataframe(fit_prophet, periods = 365)
+fc <- predict(fit_prophet, future)
+plot(fit_prophet, fc)
+```
+Can plot components with the base package also:
+
+```{r}
+prophet_plot_components(fit_prophet, fc)
+```
+

@@ -1,0 +1,323 @@
+---
+title: "9-arimax"
+author: "Dan Shah"
+date: "3/9/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(fpp3)
+#install.packages("tsibbledata") #may need to install most up to date version
+library(tsibbledata)
+```
+
+## ARIMA practice (continued!)
+
+Download US Births from Monash Forecasting Repository:
+https://www.r-bloggers.com/2022/02/monash-time-series-forecasting-repository/
+https://forecastingdata.org
+
+```{r download_dataset}
+births <- monash_forecasting_repository(4656049)
+births %>% autoplot()
+```
+subset the data
+
+```{r}
+births_1983 <- births %>%
+  filter(year(start_timestamp) > 1986)
+
+births_1983 %>% autoplot()
+```
+
+```{r}
+births_1983 %>% gg_season()
+
+births_1983 %>% gg_subseries(period = "week")
+```
+ETS modeling
+
+```{r}
+ets_fit <- births_1983 %>% 
+  model(
+    auto_ets = ETS(value),
+    additive = ETS(value ~ error("A") + trend("A") + season("A")),
+    multiplicative = ETS(value ~ error("M") + trend("A") + season("M"))
+  )
+
+glance(ets_fit) %>% arrange(AICc)
+```
+Report on best ets model
+
+```{r}
+ets_best_fit <- ets_fit %>% select(auto_ets) 
+ets_best_fit %>% report()
+```
+Residuals are autocorrelated. This does not mean the forecast is bad, but
+there is information we're not modeling.
+
+```{r}
+ets_best_fit %>% gg_tsresiduals()
+```
+Try ARIMA modeling if residuals are correlated like above
+
+```{r}
+births_1983 %>% gg_tsdisplay(difference(value, 7),
+                             plot_type = 'partial', lag=21) +
+  labs(title = "Seasonally differenced", y = "")
+```
+test if we need to difference the dataset. Apply unit root test to understand
+if seasonally differenced dataset is stationary.
+
+p_value is 0.1 (meaning > 0.1) so data is stationary
+
+```{r}
+births_1983 %>% features(difference(value, 7), unitroot_kpss)
+
+births_1983 %>% features(difference(value, 7), unitroot_ndiffs)
+```
+
+ACF PACF charts above:
+for non seasonal p and q orders - we can't tell much from the charts because
+both seem to have signficant spikes at the non-seasonal lags so might be a mixed
+ARMA model (meaning p and q > 0)
+
+for seasonal P and Q orders - we can see that the ACF chart has a signficant
+spike at 7 but none after that and the PACF chart has signficant, but decaying
+correlation at 7, 14, 21...
+This would imply a seasonal MA model.
+
+From the above:
+ARIMA - pdq(p, 0, q) + PDQ(0,1,1)
+
+```{r}
+arima_fit <- births_1983 %>% 
+  model(auto = ARIMA(value),
+        arima401011 = ARIMA(value ~ 0 + pdq(4,0,1) + PDQ(0,1,1)),
+        arima402011 = ARIMA(value ~ 0+ pdq(4,0,2) + PDQ(0,1,1)),
+        arima201011 = ARIMA(value ~ 0+ pdq(2,0,1) + PDQ(0,1,1)),
+        arima403011 = ARIMA(value ~ 0+ pdq(4,0,3) + PDQ(0,1,1)))
+
+glance(arima_fit)
+
+```
+
+```{r}
+arima_fit %>% select(auto) %>% report()
+```
+select best ARIMA model and report.
+
+degrees of freedom - 4 + 2 + 0 + 1 = 7
+
+```{r}
+arima_best_fit <- arima_fit %>% select(arima402011)
+arima_best_fit %>% report()
+```
+inspect residuals
+
+```{r}
+arima_best_fit %>% gg_tsresiduals(lag = 21)
+```
+test for autocorrelation (appears to be some)
+```{r}
+augment(arima_best_fit) %>% 
+  features(.innov, ljung_box, lag = 21, dof = 7)
+```
+test across model families:
+create test and training datasets and compare accuracy on test dataset
+
+```{r}
+train <- births_1983 %>% filter(start_timestamp < ymd('1988-11-01'))
+test <- births_1983 %>% filter(start_timestamp >= ymd('1988-11-01'))
+
+compare <- train %>% 
+  model(ets_auto = ETS(value),
+        arima = ARIMA(value ~ 0 + pdq(4, 0, 2) + PDQ(0, 1, 1)))
+
+fc <- compare %>% forecast(h=61)
+fc %>% accuracy(births_1983)
+  
+```
+## ARIMA modeling with predictor variables
+
+```{r}
+head(us_change)
+```
+Chart out income and consumption over time
+
+```{r}
+us_pivot <- us_change %>% 
+  pivot_longer(c(Consumption, Income),
+               names_to = "var", values_to = "value") %>% 
+  select(var, value)
+
+us_pivot %>% ggplot(aes(x = Quarter, y = value)) +
+  geom_line() +
+  facet_grid(vars(var), scales = "free_y")
+```
+Linear regression
+
+```{r}
+lm_fit <- us_change %>% 
+  model(TSLM(Consumption ~ Income))
+
+report(lm_fit)
+```
+Check the residuals from lm. Residuals contain autocorrelation.
+
+```{r}
+lm_fit %>% gg_tsresiduals()
+```
+Linear model with ARIMA modeling around errors
+
+```{r}
+arima_fit <- us_change %>% 
+  model(ARIMA(Consumption ~ Income))
+
+report(arima_fit)
+```
+Residuals have no autocorrelation with LM + ARIMA(errors)
+
+```{r}
+arima_fit %>% gg_tsresiduals()
+```
+No autocorrelation with Ljung-Box test
+
+
+```{r}
+augment(arima_fit) %>% 
+  features(.innov, ljung_box, dof = 5, lag = 12)
+```
+## lagged predictors
+
+The two watchouts with using predictor variables to forecast forecast variables are:
+1.) you must make an estimate of the predictor variable if it's at the same time
+or into the future
+2.) the prediction intervals do not reflect uncertainty with estimating predictor
+variable
+
+
+```{r}
+arima_lag_fit <- us_change %>% 
+  model(ARIMA(Consumption ~ lag(Income)))
+
+report(arima_lag_fit)
+```
+## TV advertising
+
+```{r}
+insurance %>% 
+  pivot_longer(c(Quotes, TVadverts)) %>% 
+  ggplot(aes(x = Month, y = value)) + 
+  geom_line() +
+  facet_grid(vars(name), scales = "free_y")
+```
+
+fit arima models with lagged advertising
+
+```{r}
+fit <- insurance %>% 
+  mutate(Quotes = c(NA, NA, NA, Quotes[4:40])) %>% 
+  model(
+    lag0 = ARIMA(Quotes ~ 0+ pdq(d=0) + TVadverts),
+    lag1 = ARIMA(Quotes ~ 0+ pdq(d=0) + TVadverts + lag(TVadverts)),
+    lag2 = ARIMA(Quotes ~ 0+ pdq(d=0) + TVadverts + lag(TVadverts) + lag(TVadverts, 2)),
+    lag3 = ARIMA(Quotes ~ 0+ pdq(d=0) + TVadverts + lag(TVadverts) +
+                   lag(TVadverts, 2) + lag(TVadverts,3))
+  )
+```
+
+examine models
+
+```{r}
+fit %>% glance()
+```
+
+```{r}
+fit %>% select(lag1) %>% report()
+
+
+```
+## Another ARIMA example with nonlinear predictors
+
+```{r}
+vic_elec
+```
+Let's take the year 2014
+group all half hour energy demand to the day
+sum up the demand
+take the max temperature on that day
+
+specify if day is weekday or weekend
+
+```{r}
+vic_elec_daily <- vic_elec %>%
+  filter(year(Time) == 2014) %>%
+  index_by(Date = date(Time)) %>%
+  summarise(
+    Demand = sum(Demand) / 1e3,
+    Temperature = max(Temperature)#,
+    #Holiday = any(Holiday)
+  ) %>%
+  mutate(Day_Type = case_when(
+    #Holiday ~ "Holiday",
+    wday(Date) %in% 2:6 ~ "Weekday",
+    TRUE ~ "Weekend"
+  ))
+
+```
+
+Plot out data
+
+```{r}
+vic_elec_daily %>%
+  ggplot(aes(x = Temperature, y = Demand, colour = Day_Type)) +
+  geom_point() +
+  labs(y = "Electricity demand (GW)",
+       x = "Maximum daily temperature")
+```
+ARIMA modeling with non-linear predictors
+
+```{r}
+fit <- vic_elec_daily %>% 
+  model(ARIMA(Demand ~ Temperature + I(Temperature^2) +
+                (Day_Type == "Weekday"))) #syntax for squared or other powers
+
+fit %>% gg_tsresiduals()
+```
+examine model
+
+```{r}
+fit %>% report()
+```
+
+estimating 7 paramaters so need that in the residual test
+
+```{r}
+augment(fit) %>% features(.innov, ljung_box, dof = 8, lag = 14)
+```
+forecast into the future
+
+Create new data into future:
+
+```{r}
+new_data(vic_elec_daily, 14)
+```
+
+
+```{r}
+vic_elec_future <- new_data(vic_elec_daily, 14) %>%
+  mutate(
+    Temperature = 26,
+    Day_Type = case_when(
+      wday(Date) %in% 2:6 ~ "Weekday",
+      TRUE ~ "Weekend"
+    )
+  )
+forecast(fit, vic_elec_future) %>%
+  autoplot(vic_elec_daily) +
+  labs(title="Daily electricity demand: Victoria",
+       y="GW")
+```
+

@@ -1,0 +1,169 @@
+---
+title: "11_project_tips"
+author: "Dan Shah"
+date: "3/29/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(fpp3)
+```
+
+## Outliers
+
+```{r}
+tourism %>%
+  filter(
+    Region == "Adelaide Hills", Purpose == "Visiting"
+  ) %>%
+  autoplot(Trips) +
+  labs(title = "Quarterly overnight trips to Adelaide Hills",
+       y = "Number of trips")
+```
+## Use STL decomposition to remove from trend/seasonality for prediction
+
+```{r}
+ah_decomp <- tourism %>%
+  filter(
+    Region == "Adelaide Hills", Purpose == "Visiting"
+  ) %>%
+  # Fit a non-seasonal STL decomposition b/c no seasonality in data
+  model(
+    stl = STL(Trips ~ season(period = 1), robust = TRUE)
+  ) %>%
+  components()
+ah_decomp %>% autoplot()
+```
+
+## Other option:
+
+```{r}
+outliers <- ah_decomp %>%
+  filter(
+    remainder < quantile(remainder, 0.25) - 3*IQR(remainder) |
+    remainder > quantile(remainder, 0.75) + 3*IQR(remainder)
+  )
+outliers
+
+```
+
+## Missing Data
+
+
+
+```{r}
+ah_miss <- tourism %>%
+  filter(
+    Region == "Adelaide Hills",
+    Purpose == "Visiting"
+  ) %>%
+  # Remove outlying observations
+  anti_join(outliers) %>%
+  # Replace with missing values
+  fill_gaps()
+ah_fill <- ah_miss %>%
+  # Fit ARIMA model to the data containing missing values
+  model(ARIMA(Trips)) %>%
+  # Estimate Trips for all periods
+  interpolate(ah_miss)
+ah_fill %>%
+  autoplot()
+  # Only show outlying periods
+ #right_join(outliers %>% select(-Trips))
+
+```
+
+
+## Weekly Data
+
+```{r}
+us_gasoline
+```
+
+
+```{r}
+my_dcmp_spec <- decomposition_model(
+  STL(Barrels),
+  ETS(season_adjust ~ season("N"))
+)
+us_gasoline %>%
+  model(stl_ets = my_dcmp_spec) %>%
+  forecast(h = "2 years") %>%
+  autoplot(us_gasoline) +
+  labs(y = "Millions of barrels per day",
+       title = "Weekly US gasoline production")
+```
+### Fourier 
+
+Force seasonal terms to 0
+Use AICc to find K argument
+
+```{r}
+gas_dhr <- us_gasoline %>%
+  model(dhr = ARIMA(Barrels ~ PDQ(0, 0, 0) + fourier(K = 6)))
+
+gas_dhr %>%
+  forecast(h = "2 years") %>%
+  autoplot(us_gasoline) +
+  labs(y = "Millions of barrels per day",
+       title = "Weekly US gasoline production")
+```
+
+Use STL when seasonality changes over time
+Use DHR when other regressors
+
+
+## Within Limits
+
+So will stay positive
+
+```{r}
+egg_prices <- prices %>% filter(!is.na(eggs))
+egg_prices %>%
+  model(ETS(log(eggs) ~ trend("A"))) %>%
+  forecast(h = 50) %>%
+  autoplot(egg_prices) +
+  labs(title = "Annual egg prices",
+       y = "$US (in cents adjusted for inflation) ")
+```
+
+
+## Ensemble Forecasts
+
+```{r}
+auscafe <- aus_retail %>%
+  filter(stringr::str_detect(Industry, "Takeaway")) %>%
+  summarise(Turnover = sum(Turnover))
+train <- auscafe %>%
+  filter(year(Month) <= 2013)
+STLF <- decomposition_model(
+  STL(log(Turnover) ~ season(window = Inf)),
+  ETS(season_adjust ~ season("N"))
+)
+cafe_models <- train %>%
+  model(
+    ets = ETS(Turnover),
+    stlf = STLF,
+    arima = ARIMA(log(Turnover))
+  ) %>%
+  mutate(combination = (ets + stlf + arima) / 3)
+cafe_fc <- cafe_models %>%
+  forecast(h = "5 years")
+```
+
+```{r}
+cafe_fc %>%
+  autoplot(auscafe %>% filter(year(Month) > 2008),
+           level = NULL) +
+  labs(y = "$ billion",
+       title = "Australian monthly expenditure on eating out")
+```
+
+```{r}
+cafe_fc %>%
+  accuracy(auscafe) %>%
+  arrange(RMSE)
+
+```
+

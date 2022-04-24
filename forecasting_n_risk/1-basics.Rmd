@@ -1,0 +1,168 @@
+---
+title: "1-tidyverse"
+author: "Dan Shah"
+date: "1/9/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# A VERY fast introduction to the Tidyverse
+
+### If you haven't used the Tidyverse before I recommend:
+
+-   Ch 1-4 of <https://moderndive.netlify.app/>or
+
+-   <https://r4ds.had.co.nz> for a deeper dive
+
+Let's load the required packages and see what data is included:
+
+```{r load, echo = FALSE, warning= FALSE}
+#load required packages
+library(nycflights13)
+library(tidyverse)
+library(lubridate)
+
+data(package='nycflights13')
+```
+
+### Examining the table
+
+You can also embed plots, for example:
+
+```{r flightsView, echo=FALSE}
+#View(flights)
+```
+
+```{r flightsGlimpse, echo=FALSE}
+glimpse(flights)
+```
+
+```{r help}
+?flights
+```
+
+### Filter
+
+Flights has more than one carrier (airline) within the table.
+
+```{r allCarrier}
+unique(flights$carrier)
+```
+
+To filter for one (or more) the filter function can be used.
+
+Filter for flights from United Airlines (UA):
+
+```{r filter}
+ua_flights<- flights %>% 
+
+  filter(carrier == "UA")
+
+unique(ua_flights$carrier)
+```
+
+### Select and Mutate
+
+```{r select}
+flights %>% 
+  select(year, month, day, dep_time, flight, carrier) %>% 
+  head()
+```
+
+Mutate creates new columns within the dataframe. The make_date function from the lubridate package makes creating date or datetime vectors within a dataframe quite easy. Here we use the integer columns from year, month day to make a new column called date_flight:
+
+```{r mutate}
+flights %>% 
+  select(year, month, day) %>% 
+  mutate(date_flight = make_date(year, month, day)) %>% 
+  head()
+```
+
+### **Group By, Summarise and Arrange**
+
+Group By is a powerful function from the dplyr package within the tidyverse that groups data frames based upon keys:
+
+```{r groupby}
+flights_grouped_carrier <- flights %>% 
+  group_by(carrier)
+
+flights_grouped_carrier
+```
+
+From there we can obtain specifics within the group, like number of rows, average dep_delay:
+
+```{r summarise}
+flights_grouped_carrier %>% 
+  summarise(cnt = n(),
+            avg_delay = mean(dep_delay, na.rm = T)) %>% 
+  arrange(desc(avg_delay))
+```
+
+### Visualization with ggplot2
+
+<https://r4ds.had.co.nz/data-visualisation.html>
+
+1.  Begin a flight with the ggplot()
+
+2.  Include the dataset
+
+3.  Choose how to map the data using the aes() aesthetics function
+
+4.  Add layers, like a geom layer, which generates the plot and has additional settings
+
+`ggplot(data = <DATA>) +`
+
+`<GEOM_FUNCTION>(mapping = aes(<MAPPINGS>))`
+
+If we wanted to create a scatter plot with the ua_flights dataset and dep_delay on the x, arr_delay on the y, then we would use:
+
+```{r scatterUA, warning = FALSE}
+ggplot(data = ua_flights, mapping = aes(x = dep_delay, y = arr_delay)) + 
+
+  geom_point(alpha = 0.2)
+```
+
+### Conditional filtering
+
+Use \| and & to conditionally filter a dataset:
+
+```{r conditionalFilter}
+early_january_weather <- weather %>% 
+
+  filter(origin == "LGA" & (month == 1 & day <= 15))
+
+head(early_january_weather)
+```
+
+### Plotting a time series:
+
+```{r timeseriesPlot}
+ggplot(data = early_january_weather, 
+       mapping = aes(x = time_hour, y = temp)) + 
+  geom_line() +
+  ggtitle((title = "Weather in early January")) +
+  ylab("Temperature (F)") +
+  xlab("Datetime")
+```
+
+Next lecture we'll cover tsibble objects (we're working with tibble objects today) and the autoplot() function which simplifies things:
+
+```{r autoplot}
+library(tsibble)
+library(feasts)
+
+early_january_weather %>% 
+  tsibble(index = time_hour) %>% 
+  autoplot(temp)
+```
+
+### Lab 1
+
+1.  What kind of object is early_january_weather (use str())?
+
+2.  Plot wind speeds (weather table) in February by origin? What stands out?
+
+3.  What month, on average, had the highest wind speed with origin = JFK

@@ -1,0 +1,302 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+    1. Import and format data (1 pts)
+        a. Import and convert bicycle.rda to a tsibble with an index of dteday (see first page for hint)
+```{r}
+setwd('C:\\Users\\nguye2aq\\Downloads')
+#setwd('~/Documents/forecast_and_risk')
+Bike <- readRDS('bicycle.rda')
+library(tsibble)
+Bike <- tsibble(Bike)
+```
+
+        b. Using select(), retain only these columns: (dteday, workingday, weathersit, atemp, windspeed, cnt)
+        
+```{r}
+library(dplyr)
+Bike <- Bike %>% select(dteday, workingday, weathersit,
+                atemp ,windspeed, cnt)
+```
+        
+        c. Create a new column called weekday_factor which is the abbreviated day of week (hint use wday function from lubridate package and see arguments with ?wday)
+        
+```{r}
+library(lubridate)
+Bike <- Bike %>% mutate(weekday_factor = wday(dteday, abbr = TRUE, label = TRUE))
+```
+      
+        d. Create a new column called workingday_factor which converts workingday to a factor (use factor()).
+```{r}
+?factor
+Bike <- Bike %>% mutate(workingday_factor = factor(workingday))
+```
+        
+        e. Convert weathersit to factor called weathersit_factor (use factor())
+```{r}
+Bike <- Bike %>% mutate(weathersit_factor = factor(weathersit))
+```  
+        f. Remove workingday and weathersit columns from dataset
+```{r}
+Bike <- Bike %>% select(-c(workingday, weathersit))
+Bike
+```
+
+    2. Visualize the the time series and potential predictor variables (4 pts)
+        a. Use autoplot() or ggplot’s geom_line() to visualize the time series’ cnt column
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(feasts)
+
+autoplot(Bike, cnt)
+```
+        
+        b. Visualize average bike rentals for weekday_factor, workingday_factor and weathersit_factor to understand to understand how the day of week and generalized weather impacts average ridership
+            i. Hint – depending on how you want to visualize you may need to convert the tsibble to a tibble to use the group_by() and summarise() functions without the dteday index. If it’s a tsibble, it will always group by the columns AND the index
+            ii. Hint – you could create the visual with geom_boxplot()
+
+```{r}
+bike_by_weekday <- as_tibble(Bike) %>% 
+    group_by(weekday_factor) %>% 
+    summarise_at(vars(-dteday, -workingday_factor, -weathersit_factor), funs(mean(., na.rm=TRUE)))
+
+bike_by_weekday
+bike_by_weekday %>%  ggplot(aes(x = weekday_factor, y = cnt))+  
+                    geom_bar(stat = "identity",position = "stack")
+ggplot(Bike, aes(x = weekday_factor, y = cnt)) + geom_boxplot()
+
+
+```
+```{r}
+bike_by_workday <- as_tibble(Bike) %>% 
+    group_by(workingday_factor) %>% 
+    summarise_at(vars(-dteday, -weekday_factor, -weathersit_factor), funs(mean(., na.rm=TRUE)))
+
+bike_by_workday
+ggplot(Bike, aes(x = workingday_factor, y = cnt)) + geom_boxplot()
+```
+```{r}
+bike_by_weather <- as_tibble(Bike) %>% 
+    group_by(weathersit_factor) %>% 
+    summarise_at(vars(-dteday, -weekday_factor, -workingday_factor), funs(mean(., na.rm=TRUE)))
+
+bike_by_weather
+ggplot(Bike, aes(x = weathersit_factor, y = cnt)) + geom_boxplot()
+
+test  <- readRDS('bicycle.rda')
+unique(test$weathersit)
+```
+          c.    Perform a scatter plot of cnt and the below variables. Describe the relationships.
+            i. atemp
+            ii. windspeed
+```{r}
+ggplot(Bike, aes(x=atemp, y=cnt)) + geom_point()
+```
+There seems to be a positive correlation between atemp and cnt 
+            
+```{r}
+ggplot(Bike, aes(x=windspeed, y=cnt)) + geom_point()
+
+```
+There seems to be no correlation between windspeed and cnt 
+
+        d. Based on what you notice above, what predictor variables would you include in a time series linear model? Which of these variables would be considered dummy variables? 
+I would pick weather and temperature to be predictors. Weather type would be dummy variables
+
+    3.	Are total rentals per day (the cnt variable) stationary? (2 pts)
+        a.	Plot a correlogram (ACF plot) of the cnt column. What does the plot tell you about the stationarity of the data? Confirm this with a KPSS unit root test.
+```{r}
+Bike %>% 
+  ACF(cnt) %>% 
+  autoplot() 
+```
+        The autocorrelation decrease pretty slowly, so this could be a non-stationary time series
+```{r}
+Bike %>% features(cnt, unitroot_kpss)
+```
+        The pvalue is very low, suggest that the original data for cnt is non-stationary
+      b.	Difference the data and test stationarity with a KPSS unit root test
+      c.	Create new column called diff_cnt which is difference(cnt)
+
+```{r}
+Bike <- Bike %>% 
+      mutate(diff_cnt = difference(cnt))
+autoplot(Bike, diff_cnt)
+Bike %>% features(diff_cnt, unitroot_kpss)
+```
+         pvalue is more than 0.05, suggesting the null-hypothesis is likely, that this data diff_cnt is sationary
+
+    4.	Fit TSLM models to the data (12 pts)
+      a.	Create a new column called lag_diff_cnt which is lag(diff_cnt) 
+      Creating 4 lags because why not. I want to experiment. I'm guessing it's because it's stationary, there would be no need for create a time series feature lagging by 4???
+```{r}
+Bike <- Bike %>% 
+  mutate(
+         lag_diff_cnt1 = lag(diff_cnt, 1))
+
+# Bike <- Bike %>% 
+#   mutate(
+#          lag_diff_cnt1 = lag(diff_cnt, 1),
+#          lag_diff_cnt2 = lag(diff_cnt, 2),
+#          lag_diff_cnt3 = lag(diff_cnt, 3),
+#          lag_diff_cnt4 = lag(diff_cnt, 4))
+```
+      
+      b.	Create a new column called lag_weather which is lag(weathersit_factor)
+```{r}
+Bike <- Bike %>% 
+  mutate(lag_weather = lag(weathersit_factor, 1))
+```
+      
+      c.	Filter out the first row of data which includes missing values for the lags just created
+```{r}
+Bike <- Bike %>%
+  filter(!is.na(lag_diff_cnt1))
+```
+```{r}
+Bike
+```
+
+
+      d.	Split the dataset into a train and test set
+        i.	Training set is data before 10/1/2012
+```{r}
+train <- Bike %>% filter(dteday < '2012-10-01')
+train
+```
+        ii.	Testing set is data on and after (>=) 10/1/2012 and on and before  (& <=) 10/30/2012
+```{r}
+test <- Bike %>% filter(dteday >= '2012-10-01' & dteday <= '2012-10-30')
+test
+```
+        
+      e.	Fit the following models to the train dataset 
+        i.	diff_cnt = atemp + workingday_factor + weathersit_factor
+        ii.	diff_cnt = lag_diff_cnt + atemp + workingday_factor + weathersit_factor
+        iii.	diff_cnt = lag_diff_cnt+ lag_weather + atemp + workingday_factor + weathersit_factor
+        iv.	Compare AICc of the above models and report and inspect residuals of the model with the lowest AICc (glance() function)
+```{r}
+library(fpp3)
+models <- train %>% 
+  model(
+    lm1 = TSLM(diff_cnt ~ atemp + workingday_factor + weathersit_factor),
+    lm2 = TSLM(diff_cnt ~ lag_diff_cnt1 + atemp + workingday_factor + weathersit_factor),
+    lm3 = TSLM(diff_cnt ~ lag_diff_cnt1 + lag_weather + atemp + workingday_factor + weathersit_factor)
+  )
+glance(models)
+```
+According to AICc, model lm3 has the lowest value, thus it is the best model for the training set
+      
+      1.	Run the model() again with the best performing formulation and use report() to view the coefficients for each of the predictor variables
+      
+```{r}
+final <- train %>% 
+  model(lm3 =  TSLM(diff_cnt ~ lag_diff_cnt1 + lag_weather + atemp + workingday_factor + weathersit_factor))
+```
+```{r}
+report(final)
+```
+      
+      2.	For next steps see section 7.3: Use gg_tsresiduals() to inspect the residuals. Are the residuals autocorrelated? What does this imply about the model?
+      
+        a.	Hint – if you use the features(.innov, ljung_box) function your dof argument (degrees of freedom of the model) can be found with the glance(model) function on your model
+```{r}
+final %>% gg_tsresiduals()
+```
+The residual looks a lot like white noise. It does have a rough gaussian distribution. However it does correlate significantly with its self lagging by 2 days, 6 days and 28 days.
+
+    3.	Are the residuals stationary? (use a KPSS unit root test)
+```{r}
+aug <- augment(final)
+aug %>% features(.innov, unitroot_kpss)
+```
+   With pvalue more than 0.05, it's likely that the residual is stationary. Which means the model is considerably good.
+   
+      4.	Plot the residuals against the predictors lag_cnt and atemp. Do they appear to be randomly scattered?
+```{r}
+residuals(final)
+```
+      
+```{r}
+#TODO
+train %>% 
+  left_join(residuals(final), by = "dteday") %>% 
+  pivot_longer(c(lag_diff_cnt1,atemp),
+               names_to = "regressor", values_to = "x") %>% 
+  ggplot(aes(x = x, y = .resid)) +
+  geom_point() +
+  facet_wrap(. ~ regressor, scales = "free_x") +
+  labs(y = "Residuals", x = "")
+
+```
+      atemp vs residuals seems to be randomly scattered. While lag_diff_cnt1 seem to cluster a bit, but still randomly scattered around the centroid.
+      
+      5.	Plot the residuals against the fitted values. What do you see?
+```{r}
+aug %>% 
+  ggplot(aes(x = .fitted, y = .innov)) +
+  geom_point() + labs(x = "Fitted", y = "Residuals")
+```
+      It looks like noise.
+      
+    f.	Compare to benchmark methods
+      i.	Fit 4 models: 
+        1.	TSLM(diff_cnt = lag_diff_cnt + lag_weather + workingday_factor + weathersit_factor)
+          a.	note: atemp was left off intentionally
+        2.	Benchmark methods (mean, naïve, drift) 
+        
+```{r}
+benchmarks <- train %>% 
+  model(
+    mean = MEAN(diff_cnt),
+    naive = NAIVE(diff_cnt),
+    drift = RW(diff_cnt ~ drift()),
+    lm = TSLM(diff_cnt ~ lag_diff_cnt1 + lag_weather + workingday_factor + weathersit_factor)
+  )
+```
+        
+      ii.	Plot the forecasts for the test dataset (10/1/2012-10/30/2012)
+      
+```{r}
+fc <- benchmarks %>% 
+  forecast(new_data = test)
+
+fc %>% autoplot(test, level = NULL)
+```
+
+      iii.	Compare MAPE, MASE and MAE results on the test set. Does our linear model perform better on the test set than the benchmark methods?
+```{r}
+benchmarks %>% accuracy()
+fc %>% accuracy(test) # test accuracy
+```
+    On the test set, our model performs better by every metrics (except MAPE, which mean model won)
+
+    FPP3 – 3.7, EXERCISE 3 (1PT):
+    Why is a Box-Cox transformation unhelpful for the canadian_gas data? 
+```{r}
+canadian_gas
+autoplot(canadian_gas, Volume)
+```
+```{r}
+
+#use the Guerrero feature from Features() to estimate lambda for a Box-Cox transform
+lambda <- canadian_gas %>% 
+  features(Volume, features = guerrero) %>% 
+  pull(lambda_guerrero)
+
+lambda
+```
+
+```{r}
+
+#plot the Box-Cox transformation with the lambda value retrieved
+canadian_gas %>% 
+  model(
+    STL(box_cox(Volume, lambda))) %>% 
+  components() %>% 
+  autoplot()
+```
+Because the variation in canadian gas starts relatively small, increases for 15 years, then decreases again, so a straight forward way to transform data like box cox wouldn't work.

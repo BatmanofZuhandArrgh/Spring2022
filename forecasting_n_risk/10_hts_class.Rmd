@@ -1,0 +1,115 @@
+---
+title: "10_hts"
+author: "Dan Shah"
+date: "3/23/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(fpp3)
+```
+
+## R Markdown
+
+
+```{r cars}
+tourism <- tsibble::tourism
+```
+
+```{r}
+tourism
+```
+
+Creating relationshisp for HTS or group time series modeling/forecasting
+
+```{r}
+tourism_hts <- tourism %>%
+  aggregate_key(State/Region, Trips = sum(Trips))
+
+tourism_hts
+```
+
+Visualizing with hierarchical groupings:
+
+```{r}
+tourism_hts %>% 
+  filter(is_aggregated(Region)) %>% 
+  autoplot(Trips) +
+  facet_wrap(vars(State), scales = "free_y", ncol = 3) +
+  theme(legend.position = "none")
+```
+For grouped time series:
+
+```{r}
+prison <- readr::read_csv("https://OTexts.com/fpp3/extrafiles/prison_population.csv") %>%
+  mutate(Quarter = yearquarter(Date)) %>%
+  select(-Date)  %>%
+  as_tsibble(key = c(Gender, Legal, State, Indigenous),
+             index = Quarter) %>%
+  relocate(Quarter)
+```
+
+Groupings created with below syntax:
+
+```{r}
+prison_gts <- prison %>%
+  aggregate_key(Gender * Legal * State, Count = sum(Count)/1e3)
+```
+
+Visualize the data:
+
+```{r}
+prison_gts %>%
+  filter(!is_aggregated(Gender), is_aggregated(Legal),
+         is_aggregated(State)) %>%
+  autoplot(Count) +
+  labs(y = "Number of prisoners ('000)")
+```
+
+Forecasting with hierarchy
+
+```{r}
+tourism_full <- tourism %>%
+  aggregate_key(State/Region * Purpose, Trips = sum(Trips))
+
+fit <- tourism_full %>% 
+  filter(year(Quarter) <= 2015) %>% 
+  model(base = ETS(Trips)) %>% 
+  reconcile(
+    bu = bottom_up(base),
+    ols = min_trace(base, method = "ols"),
+    mint = min_trace(base, method = "mint_shrink")
+  )
+```
+
+create forecast for 2 years out
+
+```{r}
+fc <- fit %>% forecast(h="2 years")
+```
+
+chart forecasts at varying aggregations/groups:
+
+```{r}
+fc %>% 
+  filter(is_aggregated(Region), is_aggregated(Purpose)) %>% 
+  autoplot(
+    tourism_full %>% filter(year(Quarter) >= 2010),
+    level = NULL
+  ) +
+  facet_wrap(vars(State), scales = "free_y")
+```
+Measuring accuracy across groups:
+
+```{r}
+fc %>% 
+  filter(is_aggregated(State), is_aggregated(Purpose)) %>% 
+  accuracy(
+    data = tourism_full,
+    measures = list(rmse = RMSE, mase = MASE)) %>% 
+  group_by(.model) %>% 
+  summarise(rmse = mean(rmse), mase = mean(mase))
+  
+```
+

@@ -1,0 +1,174 @@
+Group 13 member:
+- Anh Quoc Nguyen
+- Ashley Huber
+- Matthew Lamb
+- Trevor Parales
+
+
+```{r}
+library(fpp3)
+```
+
+1.	Import and format data (4 pts)
+a.	Use code below to import data
+```{r}
+ar <- aus_retail %>% 
+  filter(State == "Northern Territory", Industry == "Clothing, footwear and personal accessory retailing")
+```
+ 
+b.	Visualize the data using autoplot: autoplot(ar, Turnover). Is the variance constant. Visualize with a log transform (autoplot(ar, log(Turnover)). Does this transformation make the variance more uniform?
+
+```{r}
+autoplot(ar, Turnover)
+```
+The variance is not constant and increases over time. There's a outlier in 1996 but other than that it increases over time. 
+
+```{r}
+autoplot(ar, log(Turnover))
+
+```
+The variance is more uniform overall, but in the 1990s the variance is lower than it is in the 2000s and later. There is still a steady increase over time but it is more uniform compared to the visualization before the log transformation. 
+
+c.	Split the dataset into a train and test set to compare across forecasting methods
+i.	Training set is data before 2018
+ii.	Test set is 2018 data
+
+```{r}
+train <- ar %>% filter(Month < yearmonth('2018 Jan'))
+test <- ar %>% filter(Month <= yearmonth('2018 Dec') & Month > yearmonth('2017 Dec'))
+```
+2.	Exponential smoothing (ETS) (6 pts)
+a.	Fit an ETS model on the training data. Remember to transform the data with log()
+```{r}
+exSm <- train %>% 
+  model(SES = ETS(log(Turnover)))
+glance(exSm)
+fc <- exSm %>% forecast(h = "3 years")
+fc %>% autoplot(train, level = NULL)
+```
+```{r}
+ets_models <- train %>% model(
+  SES = ETS(log(Turnover)),
+  AAA = ETS(log(Turnover) ~ error("A") + trend("A") + season("A")),
+  AAM = ETS(log(Turnover) ~ error("A") + trend("A") + season("M")))
+glance(ets_models)
+sample_model_AAA <- train %>% model(ETS(log(Turnover) ~ error("A") + trend("A") + season("A")))
+fc <- sample_model_AAA %>% forecast(h = "3 years")
+fc %>% autoplot(train, level = NULL)
+```
+
+b.	What does the model suggest about seasonality and trend in the data?
+You can see that there is a seasonal trend based on years. Every year the turnover fluctuates by decreasing and then increasing. The data also increases over time but is not very constant as there are jumps in the plot. 
+c.	Plot the residuals. What do you notice in the ACF plot?
+```{r}
+exSm %>% gg_tsresiduals()
+```
+The innovation residuals look a lot like white noise and has a rough normal distribution center around 0.It correlates with it lags at 8-month, 12-month and 18-month point.
+
+3.	ARIMA modeling (10 pts)
+a.	Make the data stationary
+i.	Take a seasonal (m=12) difference and/or nonseasonal difference to try and make the data stationary. Test if the data is stationary with the unitroot test (kpss).
+```{r}
+train %>% features(Turnover, list(unitroot_kpss, unitroot_ndiffs))
+train %>% features(difference(Turnover, 12), unitroot_kpss)
+```
+  It is recommended to take only 1 difference, and after taking the monthly seasonal diff, the pvalue is 0.1 > 0.05, so it's fair to say that Turnover is stationary
+  
+Though after drawing the graph and further unit root testing, we decided to difference again for good measure. The graph looks more stationary.
+```{r}
+train <- train %>% 
+      mutate(s_Turnover_diff = difference(Turnover, 12),
+             ns_s_Turnover_diff = difference(s_Turnover_diff))
+autoplot(train, s_Turnover_diff)
+
+train %>% features(ns_s_Turnover_diff, unitroot_kpss)
+autoplot(train, ns_s_Turnover_diff)
+```
+  
+ii.	Plot an ACF and a PACF chart. Interpret the charts. Does this look like a pure AR or MA model after our differencing?
+```{r}
+train %>% gg_tsdisplay(ns_s_Turnover_diff, plot_type = "partial")
+
+```
+Neither plots dies out in decay or wave forms. So it should not be purely modeled by AR or MA
+
+b.	Fit an ARIMA model to the training data
+i.	ARIMA(log(Turnover))
+```{r}
+auto_arima <- train %>% model(
+    auto = ARIMA(Turnover))
+auto_log_arima <- train %>% model(
+    auto_log = ARIMA(log(Turnover)))
+
+tuned_arima <- train %>% model(
+  tuned110110 = ARIMA(Turnover ~ pdq(1,1,0) + PDQ(1,1,0)),
+  tuned011110 = ARIMA(Turnover ~ pdq(0,1,1) + PDQ(1,1,0)),
+  tuned011011 = ARIMA(Turnover ~ pdq(0,1,1) + PDQ(0,1,1)),
+  tuned110011 = ARIMA(Turnover ~ pdq(1,1,0) + PDQ(0,1,1)),
+        )
+```
+c.	Print the report using the report() function. What are the p,d,q and P,D,Q parameters?
+```{r}
+report(auto_arima)
+report(auto_log_arima)
+glance(auto_arima)
+glance(auto_log_arima)
+```
+For the non-log and log Turnover, the best pdqPDQ found are pdq(101) + PDQ(011), pdq(201) + PDQ(211), respectively.
+
+d.	Plot the residuals. Interpret the ACF plot.
+```{r}
+auto_arimas <- train %>% model(
+    auto = ARIMA(Turnover),
+    auto_log_arima = ARIMA(log(Turnover))
+    )
+auto_arimas %>% select(auto) %>% gg_tsresiduals(lag = 36)
+auto_arimas %>% select(auto_log_arima) %>% gg_tsresiduals(lag = 36)
+
+```
+For arima with non-log Turnover, the residual looks normally distributed at 0 and stationary. For log Turnover, it almost looks as good, although the residual does correlates with itself by 8-lagged months time and 1 lagged years time significantly.
+
+4.	Compare with benchmark models¬¬¬¬ (10 pts)
+a.	Re-fit ETS, ARIMA models to the training dataset (allow R do the model selection for all ARIMA and ETS parameters).
+```{r}
+auto_model <- train %>% 
+  model(
+    auto_ets = ETS(Turnover),
+    auto_log_ets = ETS(log(Turnover)),
+    auto_arima = ARIMA(Turnover),
+    auto_log_arima = ARIMA(log(Turnover)))
+
+```
+```{r}
+ets_best_fit <- auto_model %>% select(auto_ets) 
+ets_best_fit %>% report()
+
+arima_best_fit <- auto_model %>%  select(auto_arima)
+arima_best_fit %>%  report()
+```
+
+
+b.	Can AICc be used to compare the model performance?
+For the same data with the same transformation to the data, it is comparable between models (from the same family or not).
+For different data or different data transformation, aicc cannot be used fairly.To compare using AICC, the data must be transformed using the same log or differencing in the same way, or not transformed at all.
+
+c.	Forecast the data (using forecast(new_data = test)) on your test dataset. Then use the accuracy function with the forecast and ar object created in part 1.
+i.	Example:
+1.	fit_model_compare %>% forecast(new_data = test) %>% accuracy(ar) 
+d.	Plot the forecasts against the test dataset
+e.	Which model has the lowest MASE?
+
+```{r}
+	auto_model %>% forecast(new_data = test) %>% accuracy(ar)
+```
+The best arima model using log(Turnover) has the lowest MASE of all models.
+```{r}
+
+forecast(auto_model, test) %>%
+  autoplot(ar)
+```
+```{r}
+forecast(auto_model, test) %>%
+  autoplot(test)
+```
+

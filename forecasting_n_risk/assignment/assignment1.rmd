@@ -1,0 +1,360 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+#1. (FPP3 1.8- Exercises, #1)
+Case 3:
+==> State of the pandemic and government policy; current resale value of the cars; gas price; state of all car rental competitors.
+Case 4:
+The possible variables are:
+- "school holidays, major sporting events, advertising campaigns, competition behaviour"
+- the state of the economy (affecting disposable income budget of customers)
+- events at destination happening at the time of the flights
+- new companies moving into or starting to hire at each destination
+- traffic data for each flight for the last decade
+- state of competitive airlines (their ticket price, frequent flyer program offering,...)
+
+#2. (FPP3 1.8- Exercises, #2) For case 3:
+Step 1: Problem definition.
+- Purpose: forecasting vehicle resale values
++ Divide all cars in current asset into segments of cars ready to be forecast (based on miles driven, current values, brands,...)
+Step 2: Gathering information:
+- Gather statistical data:
++ Miles driven, brands, current values, ... for each specific car, calculate average for each segment of car type.
++ Values of each cars in the past 10 years for our companies, for each competitors companies.
++ Find all government policies and economical events and stats concerning our industries, and their projection in the future (gas price, average disposable income for middle class,...)
+
+- Gather expertise of professionals:
++ Probably randomly pick cars out of each segments to personal examination and evaluation.
+
+Step 3: Preliminary (exploratory) analysis.
+-Building graphs and analyze correlations of statistical data in forms of time series
++ finding outliers-> detecting events affecting price
++ finding how business cycles, interest rates, gas price,... affect resale data
++... 
+
+Step 4: Choosing and fitting models.
+- Choosing a good model for prediction
+
+Step 5: Using and evaluating a forecasting model.
+- Decide evaluation metrics (MAE,...) and test model on past data
+
+#3. PBF2e Minicase 1.3
+Minicase 1.3 Sales Forecasting
+A company sells many hundreds of clothing products, historically through mail order and
+its own high street shops, but increasingly through the Internet. The firm also offers the customer four different purchase schemes, from pay on purchase through payment over different periods (of 6 and 12 months). The final plan allows a postponement of any payment for 12 months.
+The firm has to ensure a supply of its advertised products to meet forecast demand.
+Adequate inventory has consequences for the distribution network. (THe products need
+to be stocked and then shipped.) The retailer also has to decide which customers to target
+through mailings to stimulate further purchases.
+#What variables would the company need to forecast?
+#Use the PIVASE framework to guide your thinking
+#What strategic financial decisions may need to be linked to the various customer purchase plans?
+Variables: 
+- Customer segments and their behaviors, which include internet usage, income, awareness on comsumtion and environmentalism,...
+- Economical and socialogical stats like birthrate, inflation,..
+- Previous records of demands and prices for each purchasing scheme
+
+Strategic financial decisions:
+- Negotiating refinancing terms, conditions and loan rates.
+- Making different purchasing plans, depending on cash on hand
+- How much to spend on advertisement to market each purchasing option
+
+PIVASE
+Step 1: Problem definition.
+- Purpose: forecast the demand, in total and for each purchasing methods
+
+Step 2: Gathering information: Data like variables stated above
+
+Step 3: Preliminary (exploratory) analysis.
+-Building graphs and analyze correlations of statistical data in forms of time series
++ Graph out birth rate and find correlations with demand for babies' clothes
++ Graph out income, average spending, clothes price... and find correlations with the demands from each purchasing scheme
++ Build profiles of the customer segments who choose each purchasing plans. Profiles should include how much they are willing to spend, how often,...
++...
+
+Step 4: Choosing and fitting models.
+- Choosing a good model for prediction
+
+Step 5: Using and evaluating a forecasting model.
+- Decide evaluation metrics (MAE,...) and test model on past data
+
+#(FPP3 2.10- Exercises, #1)
+```{r}
+library(tidyverse)
+library(fpp3)
+help("gafa_stock")
+help("PBS")
+help("vic_elec")
+help("pelt")
+```
+
+
+
+```{r}
+autoplot(gafa_stock)
+
+```
+
+
+```{r}
+PBS %>% 
+  filter(ATC2=="A10") %>% 
+  autoplot(Cost)
+```
+```{r}
+autoplot(vic_elec)
+```
+```{r}
+autoplot(pelt)
+
+```
+THe time intervals for these series are:
+pelt: annual data, time interval = 1 year
+vic_elec: 30 minutes
+PBS: 1 month
+gafa_stock: time interval varies in ranges from 1 day to many days, the series contains irregular trading day
+
+
+# (FPP3 2.10- Exercises, #8)
+Monthly Australian retail data is provided in aus_retail. Select one of the time series as follows (but choose your own seed value):
+
+ACF() %>% autoplot()
+
+Can you spot any seasonality, cyclicity and trend? What do you learn about the series?
+
+```{r}
+set.seed(100)
+myseries <- aus_retail %>%
+  filter(`Series ID` == sample(aus_retail$`Series ID`,1))
+
+myseries
+autoplot(myseries)
+```
+```{r}
+gg_season(myseries, y = Turnover)
+gg_subseries(myseries, y = Turnover)
+gg_lag(myseries, y = Turnover,  geom = "point")
+myseries %>%
+  ACF(Turnover) %>%
+  autoplot() + labs(title="Turnover")
+```
+The turnover is definitely trending upwards, showing steady growth rate increasing.There is a seasonal and cyclical pattern in the time series.
+The later in the time series, the more likely there are a sharp decrease in January, and a sharp increase in February and November.
+There's a high positive correlation between the time series and its lagged by 1 to 9, though the closer the lagged time series to the present, the larger the correlation.
+
+#(FPP3 2.10- Exercises #9)
+Use the following graphics functions: autoplot(), gg_season(), gg_subseries(), gg_lag(), ACF() and explore features from the following time series: “Total Private” Employed from us_employment, Bricks from aus_production, Hare from pelt, “H02” Cost from PBS, and us_gasoline.
+
+Can you spot any seasonality, cyclicity and trend?
+What do you learn about the series?
+What can you say about the seasonal patterns?
+Can you identify any unusual years?
+
+1. “Total Private” Employed from us_employment
+```{r}
+total_private <- us_employment %>% 
+  filter(Title == "Total Private")
+total_private
+autoplot(total_private, Employed)
+gg_season(total_private, y = Employed)
+gg_subseries(total_private, y = Employed)
+gg_lag(total_private, y = Employed,   geom = "point")
+total_private %>% 
+  ACF(Employed) %>%
+  autoplot() + labs(title="Employed")
+```
+Trend is upward, Employment is steadily increasing.We can see the seasonality and cyclicality in the time series.
+Rate of increase in each months across years is the similar to each other.
+High positive correlation in lags by 1 to 9+ months, close to 1 at first, but gradually decrease.
+
+2.Bricks from aus_production
+```{r}
+library(fpp3)
+aus_production
+autoplot(aus_production, Bricks)
+gg_season(aus_production, y = Bricks)
+gg_subseries(aus_production, y = Bricks)
+gg_lag(aus_production, y = Bricks,   geom = "point")
+aus_production %>% 
+  ACF(Bricks) %>%
+  autoplot() + labs(title="Bricks")
+
+```
+The trend we can see that from 1960 to 1980 brick production increases, then afterwards, it gradually decreased. For most years, from Q1, production increases, hitting peak by Q2 or Q3 and decreasing by Q4.
+We see that there is an element of seasonality and cyclicality in the time series. We can see that the time series has high correlation with with itself, lagging by 1 till 9 quarters. The highest correlation is lagged by 4 quarters, so there is seasonality in the series, then the correlation drops. 
+
+3. Hare from Pelt
+```{r}
+pelt
+autoplot(pelt, Hare)
+gg_subseries(pelt, y = Hare)
+gg_lag(pelt, y = Hare,   geom = "point", lags = 1:16)
+pelt %>% 
+  ACF(Hare) %>%
+  autoplot() + labs(title="Hare")
+
+```
+The trend to be that the time series stay rough the same to closed to 50000 units. There are constantly low correlation with its lagged self. There was peak negative correlation by year 5 and 15, and about 0.35 correlation with a 10-year-lagged time series. So there is a cycle of 10 years, but to a very low effect.
+
+4. “H02” Cost from PBS
+```{r}
+library(fpp3)
+library(dplyr)
+PBS
+# gg_season(PBS, y = Cost)
+# gg_subseries(PBS, y = Cost)
+PBS %>% 
+  filter(ATC2=="H02") %>% 
+  autoplot(Cost)
+cost <- PBS %>% 
+  filter(ATC2=="H02")
+newcost <- cost %>% 
+  select(-c(Concession, Type, ATC1, Scripts))
+cost
+# gg_lag(cost,  geom = "point")
+newcost %>% filter(ATC2=="H02") %>% gg_lag(Cost, geom="point")
+
+PBS %>% 
+  filter(ATC2=="H02") %>% 
+  ACF(Cost) %>%
+  autoplot() + labs(title="Cost")
+```
+
+
+
+```{r}
+us_gasoline
+autoplot(us_gasoline,Barrels)
+gg_season(us_gasoline, y = Barrels)
+gg_lag(us_gasoline, y = Barrels,  geom = "point")
+us_gasoline %>% 
+  ACF(Barrels) %>%
+  autoplot() + labs(title="Barrels")
+
+```
+The trend is it gradually increased till 2009, and plateaued. For each year, the trend is also gradually increasing. There is a high correlation with the time series' lagged selves, but it decreases as the lag increases. There does seem to be a cycle and seasonality, but the cycle interval has not been determined yet.
+
+#(FPP3 2.10- Exercises, #11)
+The aus_livestock data contains the monthly total number of pigs slaughtered in Victoria, Australia, from Jul 1972 to Dec 2018. Use filter() to extract pig slaughters in Victoria between 1990 and 1995. Use autoplot() and ACF() for this data.
+```{r}
+library(fpp3)
+library(dplyr)
+library(zoo)
+help("aus_livestock")
+aus_livestock
+filtered_livestock <- aus_livestock %>%
+  filter(State == "Victoria",Animal == "Pigs", year(Month) >= 1990 & year(Month) <= 1995)
+filtered_livestock
+autoplot(filtered_livestock,Count)
+filtered_livestock %>% 
+  ACF(Count) %>%
+  autoplot() + labs(title="Counts")
+
+```
+#How do they differ from white noise? If a longer period of data is used, what difference does it make to the ACF?
+They are different from white noise. the time series is trending upwards. There is high positive correlation between itself and its lagged self, especially lagging by 1 to 3 months. Afterwards, the correlation drops gradually as the lag increases, peaking at the 6 and 12 months lag points. After testing with longer the period of data, the more it will positively correlate with its lagged self.
+
+
+# Tsibble and mutate practice: Import a year of stock (of your choosing) closing price data (feel free to use gafa_stock within FPP3 or quantmod package. Convert this data to a tsibble. Plot differences and correlogram of the differences and comment on whether the differences resemble white noise (reference FPP3 2.10, #12 for code help).
+```{r}
+library(fpp3)
+library(tsibble)
+
+appl_stock <- gafa_stock %>%
+  filter(Symbol == "AAPL", year(Date) == 2014) %>%
+  select(-c(Open, High, Low, Adj_Close, Volume)) %>% 
+  mutate(trading_day = row_number()) %>% 
+  update_tsibble(index = trading_day, regular = TRUE) %>%
+  mutate(lag_Close = lag(Close),
+         diff_Close = Close-lag_Close)
+appl_stock <- as_tsibble(appl_stock)
+appl_stock
+autoplot(appl_stock, diff_Close)
+autoplot(appl_stock, Close)
+```
+We can see that there are huge peaks and troughs in the differences between the closing price on a day and the day before. As one can see that the price trends upwards, so difference could not be just white noise.
+
+#Reindexing and plotting practice: Vic_elec dataset
+#Plot daily demand year over year for vic_elec dataset (within FPP3)
+```{r}
+vic_elec
+# help("vic_elec")
+
+daily_vic_elec <- vic_elec %>% 
+  mutate(Date = as.Date(Time)) %>% 
+  index_by(index = Date) %>% 
+  summarise(Demand_Daily = sum(Demand),
+            Avg_Temp = mean(Temperature)) %>% 
+  # mutate(Demand_Daily_squared = log(Demand_Daily))
+
+daily_vic_elec
+autoplot(daily_vic_elec, Demand_Daily)
+
+daily_vic_elec %>% 
+  gg_season(Demand_Daily)
+daily_vic_elec %>% 
+  ggplot(aes(x = Avg_Temp, y = Demand_Daily)) + 
+  geom_point(alpha = 0.2)
+
+# daily_vic_elec %>% 
+#   ggplot(aes(x = Avg_Temp, y = Demand_Daily_squared)) + 
+#   geom_point(alpha = 0.2)
+
+daily_vic_elec %>% 
+  ACF(Demand_Daily) %>% 
+  autoplot()
+ 
+cor(daily_vic_elec$Demand_Daily, daily_vic_elec$Avg_Temp)
+```
+#Is temperature correlated to demand?
+We find that there is no correlation between the demand and the temperature, at only 0.03
+#Is previous day demand correlated with current demand?
+We can see that the demand correlates with itself lagged by 7 days. There's an obvious 7 day-cycle in the demand.
+
+
+#Datetime components: nycflights13
+#Load the flights table from the nycflights13 package
+#What day of the week has the highest average delay?
+```{r}
+library(dplyr)
+# install.packages("nycflights13")
+library(nycflights13)
+flights
+flights %>% 
+  mutate(departure = make_date(year, month, day),
+         day_of_week = wday(departure, label = TRUE)) %>%
+  group_by(day_of_week) %>% 
+  summarise(avg_dep_delay = mean(dep_delay, na.rm = T), 
+            avg_arr_delay = mean(arr_delay, na.rm = T)) %>% 
+  mutate(avg_delay = avg_dep_delay + avg_arr_delay) %>% 
+  arrange(desc(avg_delay))
+```
+Thursday is the day with the most delay (considering arrival delay and depart delay are completely separate)
+
+#Time zones: Reindex vic_elec to the US Eastern timezone using the with_tz function
+```{r}
+vic_elec %>%
+  mutate(new_tz = with_tz(Time, tzone = "America/New_York")) %>%
+  update_tsibble(index = new_tz) %>%
+  select(-Time)
+```
+
+#Durations and periods
+#Create a duration for your age at the start of our first lecture and print this duration.
+#Calculate your age at the end of the semester (4/27/22 8:50p) using periods
+```{r}
+library(lubridate)
+bday <- ymd_hms("1998-04-11 17:00:00")  
+course_start <- ymd_hms("2022-01-12 18:00:00")
+
+age <- as.duration(course_start-bday)
+age
+
+
+end_date <- course_start + weeks(16)
+age_at_end_of_class <- as.duration(end_date-bday)
+age_at_end_of_class
+```
+
+

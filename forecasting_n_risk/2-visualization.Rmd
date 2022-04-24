@@ -1,0 +1,339 @@
+---
+title: "2-visualization"
+author: "Dan Shah"
+date: "1/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(fpp3)
+
+```
+
+## tsibble
+
+tsibble objects
+
+```{r}
+olympic_running
+```
+
+Creating a tsibble from scratch
+
+```{r}
+t <- tsibble(
+  Year = 2001:2022,
+  Value = rnorm(n = 22),
+  index = Year
+)
+
+str(t)
+```
+
+```{r}
+autoplot(t, Value)
+```
+
+Reading in a file and converting to a tsibble
+
+```{r}
+prison <- readr::read_csv("https://OTexts.com/fpp3/extrafiles/prison_population.csv")
+prison
+```
+
+```{r}
+#reading in a file and converting to tsibble
+
+prison <- prison %>%
+  mutate(Quarter = yearquarter(Date)) %>%
+  select(-Date) %>%
+  as_tsibble(key = c(State, Gender, Legal, Indigenous),
+             index = Quarter)
+
+prison
+```
+
+```{r}
+index(prison)
+```
+
+```{r}
+key(prison)
+```
+
+The dplyr functions work with tsibbles:
+
+```{r}
+prison %>% 
+  filter(State == "NT")
+```
+
+### **Visualizing Time Series Data**
+
+autoplot
+
+```{r}
+#plotting a time series
+melsyd_economy <- ansett %>%
+  filter(Airports == "MEL-SYD", Class == "Economy") %>%
+  mutate(Passengers = Passengers/1000)
+
+autoplot(melsyd_economy, Passengers) +
+  labs(title = "Ansett airlines economy class",
+       subtitle = "Melbourne-Sydney",
+       y = "Passengers ('000)")
+```
+
+Information regarding autoplot
+
+```{r}
+?autoplot
+```
+
+Seasonal plots
+
+```{r}
+glimpse(vic_elec)
+```
+
+```{r}
+vic_elec_2012 <- vic_elec %>% filter(Time < as.Date('2013-01-01'))
+vic_elec_2012 %>% autoplot(Demand)
+```
+
+```{r}
+vic_elec_2012 %>% gg_season(Demand, period = 'day')
+```
+
+```{r}
+vic_elec %>% gg_season(Demand, period = "week")
+```
+
+**Correlation and scatterplot matrices**
+
+Beer and Tobacco
+
+```{r}
+aus_production
+```
+
+```{r}
+aus_production %>% 
+  ggplot(aes(x = Beer, y = Tobacco)) +
+  geom_point() +
+  labs(title = "Beer vs Tobacco")
+```
+
+```{r}
+not_missing <- aus_production %>% 
+  filter(!is.na(Tobacco))
+
+cor(not_missing$Beer, not_missing$Tobacco)
+```
+
+**Lag and Autocorrelation plots**
+
+```{r}
+aus_production %>% 
+  autoplot(Beer)
+```
+
+```{r}
+#example from fpp3 2.7
+recent_production <- aus_production %>% 
+  filter(year(Quarter) >= 2000)
+
+recent_production %>% 
+  gg_lag(Beer, geom = "point") +
+  labs(x = "lag(Beer, k")
+```
+
+```{r}
+aus_production %>% 
+  ACF(Beer, lag_max = 5)
+```
+
+```{r}
+aus_production %>% 
+  ACF(Beer) %>% 
+  autoplot() 
+```
+
+```{r}
+aus_production %>% 
+  filter(year(Quarter) >= 2000) %>% 
+  ACF(Beer) %>% 
+  autoplot()
+```
+
+**White noise**
+
+```{r}
+set.seed(44)
+noise <- tsibble(x = 1:100, white_noise = rnorm(100), index = x)
+noise %>%
+  autoplot(white_noise) +
+  labs(title = "Random noise")
+```
+
+```{r}
+noise %>% mutate(lag_noise = lag(white_noise), lag2_noise = lag(white_noise, 2))
+```
+
+```{r}
+noise %>% ACF(white_noise)
+```
+
+```{r}
+noise %>% 
+  ACF(white_noise) %>% 
+  autoplot() +
+  labs(title = "Correlogram of White Noise")
+```
+
+**lubridate package**
+
+```{r}
+library(lubridate)
+today()
+class(today())
+```
+
+```{r}
+now()
+class(now())
+```
+
+```{r}
+string_date <- "01/19/2022 7:00:02"
+class(string_date)
+
+datefrmt_date <- mdy_hms(string_date)
+class(datefrmt_date)
+```
+
+### **Datetime components**
+
+```{r}
+current_dt <- now()
+year(current_dt)
+month(current_dt)
+wday(current_dt)
+day(current_dt)
+wday(current_dt, label = TRUE, abbr = FALSE)
+current_dt
+```
+
+```{r}
+old_dt <- update(current_dt, year = 2020)
+old_dt
+```
+
+Subtraction will return a
+
+```{r}
+difference <- current_dt-old_dt
+difference
+class(difference)
+```
+
+Could be different units so best to stick to a duration class
+
+```{r}
+as.duration(difference)
+```
+
+To create durations you can use functions:
+
+```{r}
+ddays(1) + current_dt
+```
+
+**Durations** are exact times. Sometimes it's best to use periods when things like daylight savings time is involved or a year is a leap year. Duration will not give expected results.
+
+```{r}
+days(1) + current_dt
+```
+
+**Timezones**
+
+```{r}
+Sys.timezone()
+
+head(OlsonNames())
+```
+
+To update the timezone on a datetime use with_tz()
+
+```{r}
+with_tz(current_dt, "US/Pacific") 
+#force_tz(current_dt, "US/Pacific") #will change the underlying data so only if tz is wrong
+```
+
+### Time Series manipulations
+
+**upsampling**
+
+```{r}
+tourism
+```
+
+```{r}
+index(tourism)
+lubridate::year(yearquarter("2000 Q1"))
+```
+
+```{r}
+tourism %>%
+  mutate(Year = lubridate::year(Quarter)) %>%
+  index_by(Year) %>%
+  group_by(Region, State, Purpose) %>%
+  summarise(Trips = sum(Trips)) %>%
+  ungroup()
+```
+
+**shifting**
+
+```{r}
+tourism %>% 
+  group_by(Region, State, Purpose) %>% 
+  mutate(Trips_lag1 = lag(Trips)) %>% 
+  ungroup()
+```
+
+**rolling with slider package**
+
+```{r}
+aus_production
+```
+
+```{r}
+library(slider)
+aus_production %>% 
+  mutate(ma_beer = slide_dbl(Beer, mean, .before = 5))
+```
+
+**missing data, forward fill**
+
+```{r}
+tail(aus_production, 40)
+```
+
+```{r}
+aus_production %>%
+  tidyr::fill(Tobacco, .direction = 'down') %>% 
+  tail()
+```
+
+### **Lab**
+
+1.  What are the groupings and base time index for the olympic_running dataset?
+2.  use autoplot() to view bricks production in aus_production dataset. Include labels and a title.
+3.  Plot out bricks production with quarter on the x-axis and individual lines for the years in the dataset
+4.  Produce a scatterplot of bricks and cement from aus_production to see the relationship
+5.  Calculate correlation between Bricks and Cement columns Hint: must remove the missing values with !is.na() (try Googling if you're stumped)
+6.  Plot the ACF for Bricks using the ACF() function
+7.  What do the blue dashed lines on the plot above mean?
+8.  What can you interpret from the plot?
